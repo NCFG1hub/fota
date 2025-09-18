@@ -26,11 +26,11 @@ function logMessage(message) {
 }
 
 const server = new ftpd.FtpServer(HOST, {
-  getInitialCwd: () => "/",       // virtual cwd
-  getRoot: () => __dirname,       // physical root
-  pasvPortRangeStart: 1025,       // passive mode ports
+  getInitialCwd: () => "/",          // virtual cwd
+  getRoot: () => __dirname,          // physical root (so /firmware is visible)
+  pasvPortRangeStart: 1025,          // passive mode ports
   pasvPortRangeEnd: 1050,
-  pasvAddress: "199.192.25.155",  // your server’s public IP
+  pasvAddress: "199.192.25.155",     // your server’s public IP
   useWriteFile: true,
   useReadFile: true,
   tlsOptions: null,
@@ -76,48 +76,33 @@ server.on("client:connected", (connection) => {
 
   // 📥 File download with progress
   connection.on("file:retr", (filePath, stream) => {
-    const size = fs.statSync(filePath).size; // total size
-    let transferred = 0;
-
-    logMessage(`📥 ${connection.username} START downloading ${path.basename(filePath)} (${size} bytes)`);
-
-    stream.on("data", (chunk) => {
-      transferred += chunk.length;
-      const percent = ((transferred / size) * 100).toFixed(1);
-      process.stdout.write(`   ↳ ${connection.username} downloading... ${transferred}/${size} bytes (${percent}%)\r`);
-    });
-
-    stream.on("end", () => {
-      logMessage(`✅ ${connection.username} FINISHED downloading ${path.basename(filePath)} (${size} bytes)`);
-    });
-
-    stream.on("error", (err) => {
-      logMessage(`❌ Error during download: ${err.message}`);
-    });
-  });
-
-  connection.on("file:retr", (filePath, stream) => {
-    const absPath = path.join(__dirname, filePath); // 🔥 convert FTP path to real path
+    // 🔒 Ensure path is inside firmware/
+    const safePath = path.normalize(filePath).replace(/^(\.\.(\/|\\|$))+/, "");
+    const relPath = safePath.startsWith("firmware") ? safePath.slice("firmware".length + 1) : safePath;
+    const absPath = path.join(ROOT, relPath);
 
     let size = 0;
     try {
-      size = fs.statSync(absPath).size; // total size
+      size = fs.statSync(absPath).size;
     } catch (err) {
       logMessage(`❌ Could not stat file: ${absPath} (${err.message})`);
+      stream.emit("error", new Error("File not found"));
       return;
     }
 
     let transferred = 0;
-    logMessage(`📥 ${connection.username} START downloading ${path.basename(filePath)} (${size} bytes)`);
+    logMessage(`📥 ${connection.username} START downloading ${path.basename(absPath)} (${size} bytes)`);
 
     stream.on("data", (chunk) => {
       transferred += chunk.length;
       const percent = ((transferred / size) * 100).toFixed(1);
-      process.stdout.write(`   ↳ ${connection.username} downloading... ${transferred}/${size} bytes (${percent}%)\r`);
+      process.stdout.write(
+        `   ↳ ${connection.username} downloading... ${transferred}/${size} bytes (${percent}%)\r`
+      );
     });
 
     stream.on("end", () => {
-      logMessage(`✅ ${connection.username} FINISHED downloading ${path.basename(filePath)} (${size} bytes)`);
+      logMessage(`✅ ${connection.username} FINISHED downloading ${path.basename(absPath)} (${size} bytes)`);
     });
 
     stream.on("error", (err) => {

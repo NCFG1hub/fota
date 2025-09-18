@@ -5,10 +5,10 @@ const ftpd = require("ftpd");
 const HOST = "0.0.0.0";
 const PORT = 5300;
 
-const ROOT = path.join(__dirname, "firmware"); // Serving firmware from /firmware
+const ROOT = __dirname;
 
 const server = new ftpd.FtpServer(HOST, {
-  getInitialCwd: () => "/firmware",
+  getInitialCwd: () => "/",
   getRoot: () => ROOT,
   pasvPortRangeStart: 1025,
   pasvPortRangeEnd: 1050,
@@ -35,8 +35,8 @@ server.on("client:connected", (connection) => {
 
   // Handle file retrieval safely
   connection.on("file:retr", (filePath, writeStream) => {
-    let relPath = filePath.replace(/^\/firmware\//, ""); // strip leading /firmware/
-    const absPath = path.join(ROOT, relPath);
+    // filePath comes in as "/firmware/ncftrack_latest.bin"
+    const absPath = path.join(ROOT, filePath); // join with project root
 
     console.log(`📥 RETR requested: ${filePath} -> ${absPath}`);
 
@@ -49,10 +49,7 @@ server.on("client:connected", (connection) => {
 
       const readStream = fs.createReadStream(absPath);
       readStream.pipe(writeStream);
-      readStream.on("error", (e) => {
-        console.error(`⚠️ Error reading file: ${e.message}`);
-        writeStream.end();
-      });
+      readStream.on("error", (e) => writeStream.end());
     });
   });
 });

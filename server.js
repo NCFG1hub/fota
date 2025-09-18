@@ -1,117 +1,60 @@
-const ftpd = require("ftpd");
 const fs = require("fs");
 const path = require("path");
+const ftpd = require("ftpd");
 
-const HOST = "0.0.0.0";  // listen on all interfaces
-const PORT = 5300;       // custom FTP port
+const HOST = "0.0.0.0";
+const PORT = 5300;
 
-// Paths
-const ROOT = path.join(__dirname, "firmware");
-const LOG_DIR = path.join(__dirname, "logs");
-
-// Make sure firmware and logs folders exist
-if (!fs.existsSync(ROOT)) fs.mkdirSync(ROOT, { recursive: true });
-if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
-
-// 🔥 Logger helper (console + file)
-function logMessage(message) {
-  const now = new Date();
-  const timestamp = now.toISOString().replace("T", " ").split(".")[0];
-  const logLine = `[${timestamp}] ${message}`;
-
-  console.log(logLine);
-
-  const logFile = path.join(LOG_DIR, `ftp-${now.toISOString().split("T")[0]}.log`);
-  fs.appendFileSync(logFile, logLine + "\n");
-}
+const ROOT = path.join(__dirname, "firmware"); // Serving firmware from /firmware
 
 const server = new ftpd.FtpServer(HOST, {
-  getInitialCwd: () => "/",          // virtual cwd
-  getRoot: () => __dirname,          // physical root (so /firmware is visible)
-  pasvPortRangeStart: 1025,          // passive mode ports
+  getInitialCwd: () => "/firmware",
+  getRoot: () => ROOT,
+  pasvPortRangeStart: 1025,
   pasvPortRangeEnd: 1050,
-  pasvAddress: "199.192.25.155",     // your server’s public IP
-  useWriteFile: true,
-  useReadFile: true,
-  tlsOptions: null,
-  greeting: ["Welcome to NCFTrack FTP server!"]
-});
-
-server.on("error", (err) => {
-  logMessage(`❌ FTP Server error: ${err}`);
+  useWriteFile: false,
+  useReadFile: false,
+  allowedCommands: ["USER", "PASS", "QUIT", "PWD", "CWD", "LIST", "RETR"],
 });
 
 server.on("client:connected", (connection) => {
-  const remoteAddress = connection.socket.remoteAddress;
-  logMessage(`🔗 Client connected from ${remoteAddress}`);
-
-  let username = null;
+  const addr = connection.socket.remoteAddress;
+  console.log(`🔗 Client connected from ${addr}`);
 
   connection.on("command:user", (user, success, failure) => {
-    logMessage(`👤 USER command: ${user}`);
-    if (user === "web") {
-      username = user;
-      success();
-    } else {
-      failure();
-    }
+    if (user === "web") success();
+    else failure();
   });
 
   connection.on("command:pass", (pass, success, failure) => {
-    logMessage(`🔑 PASS attempt for user=${username}`);
-    if (username === "web" && pass === "web") {
-      logMessage(`✅ User ${username} authenticated`);
-      connection.username = username; // save for later
-      success(username);
-    } else {
-      logMessage(`❌ Invalid password for user=${username}`);
-      failure();
-    }
+    if (pass === "web") {
+      console.log("✅ User web authenticated");
+      success("web");
+    } else failure();
   });
 
-  // Log raw commands
-  connection.on("command", (command, params) => {
-    logMessage(`[CMD] ${connection.username || "unknown"} -> ${command} ${params || ""}`);
-  });
+  // Handle file retrieval safely
+  connection.on("file:retr", (filePath, writeStream) => {
+    const absPath = path.join(ROOT, path.basename(filePath));
+    console.log(`📥 RETR requested: ${filePath} -> ${absPath}`);
 
-  // 📥 File download with progress
-  connection.on("file:retr", (filePath, stream) => {
-    // 🔒 Ensure path is inside firmware/
-    const safePath = path.normalize(filePath).replace(/^(\.\.(\/|\\|$))+/, "");
-    const relPath = safePath.startsWith("firmware") ? safePath.slice("firmware".length + 1) : safePath;
-    const absPath = path.join(ROOT, relPath);
+    fs.stat(absPath, (err, stats) => {
+      if (err || !stats.isFile()) {
+        console.error(`❌ File not found: ${absPath}`);
+        writeStream.end(); // gracefully end
+        return;
+      }
 
-    let size = 0;
-    try {
-      size = fs.statSync(absPath).size;
-    } catch (err) {
-      logMessage(`❌ Could not stat file: ${absPath} (${err.message})`);
-      stream.emit("error", new Error("File not found"));
-      return;
-    }
-
-    let transferred = 0;
-    logMessage(`📥 ${connection.username} START downloading ${path.basename(absPath)} (${size} bytes)`);
-
-    stream.on("data", (chunk) => {
-      transferred += chunk.length;
-      const percent = ((transferred / size) * 100).toFixed(1);
-      process.stdout.write(
-        `   ↳ ${connection.username} downloading... ${transferred}/${size} bytes (${percent}%)\r`
-      );
-    });
-
-    stream.on("end", () => {
-      logMessage(`✅ ${connection.username} FINISHED downloading ${path.basename(absPath)} (${size} bytes)`);
-    });
-
-    stream.on("error", (err) => {
-      logMessage(`❌ Error during download: ${err.message}`);
+      const readStream = fs.createReadStream(absPath);
+      readStream.pipe(writeStream);
+      readStream.on("error", (e) => {
+        console.error(`⚠️ Error reading file: ${e.message}`);
+        writeStream.end();
+      });
     });
   });
 });
 
-// Start server
 server.listen(PORT);
-logMessage(`🚀 FTP server listening on ${HOST}:${PORT}`);
-logMessage(`📂 Serving firmware from: ${ROOT}`);
+console.log(`🚀 FTP server listening on ${HOST}:${PORT}`);
+console.log(`📂 Serving firmware from: ${ROOT}`);

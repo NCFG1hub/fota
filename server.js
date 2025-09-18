@@ -14,13 +14,13 @@ if (!fs.existsSync(ROOT)) {
 }
 
 const server = new ftpd.FtpServer(HOST, {
-  getInitialCwd: () => "/firmware", // virtual cwd
-  getRoot: () => ROOT,              // physical root
-  pasvPortRangeStart: 1025,         // passive mode ports
+  getInitialCwd: () => "/",       // virtual cwd
+  getRoot: () => __dirname,       // physical root
+  pasvPortRangeStart: 1025,       // passive mode ports
   pasvPortRangeEnd: 1050,
+  pasvAddress: "199.192.25.155",  // your server’s public IP
   useWriteFile: true,
   useReadFile: true,
-  allowedCommands: ["LIST", "RETR", "STOR", "USER", "PASS", "QUIT"],
   tlsOptions: null,
   greeting: ["Welcome to NCFTrack FTP server!"]
 });
@@ -49,6 +49,7 @@ server.on("client:connected", (connection) => {
     console.log(`🔑 PASS attempt for user=${username}`);
     if (username === "web" && pass === "web") {
       console.log(`✅ User ${username} authenticated`);
+      connection.username = username; // store it for logging later
       success(username);
     } else {
       console.log(`❌ Invalid password for user=${username}`);
@@ -60,16 +61,15 @@ server.on("client:connected", (connection) => {
   connection.on("command", (command, params) => {
     console.log(`[CMD] ${username || "unknown"} -> ${command} ${params || ""}`);
   });
+});
 
-  // Log file download (RETR)
-  connection.on("RETR", (filePath) => {
-    console.log(`📥 ${username} is downloading ${filePath}`);
-  });
+// ✅ Correct way to log file transfers
+server.on("file:retr", (connection, filePath) => {
+  console.log(`📥 ${connection.username} is downloading ${filePath}`);
+});
 
-  // Log file upload (STOR)
-  connection.on("STOR", (filePath) => {
-    console.log(`📤 ${username} is uploading ${filePath}`);
-  });
+server.on("file:stor", (connection, filePath) => {
+  console.log(`📤 ${connection.username} is uploading ${filePath}`);
 });
 
 // Start server

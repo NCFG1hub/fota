@@ -96,23 +96,32 @@ server.on("client:connected", (connection) => {
     });
   });
 
-  // 📤 File upload with progress
-  connection.on("file:stor", (filePath, stream) => {
-    let transferred = 0;
+  connection.on("file:retr", (filePath, stream) => {
+    const absPath = path.join(__dirname, filePath); // 🔥 convert FTP path to real path
 
-    logMessage(`📤 ${connection.username} START uploading ${path.basename(filePath)}`);
+    let size = 0;
+    try {
+      size = fs.statSync(absPath).size; // total size
+    } catch (err) {
+      logMessage(`❌ Could not stat file: ${absPath} (${err.message})`);
+      return;
+    }
+
+    let transferred = 0;
+    logMessage(`📥 ${connection.username} START downloading ${path.basename(filePath)} (${size} bytes)`);
 
     stream.on("data", (chunk) => {
       transferred += chunk.length;
-      process.stdout.write(`   ↳ ${connection.username} uploading... ${transferred} bytes\r`);
+      const percent = ((transferred / size) * 100).toFixed(1);
+      process.stdout.write(`   ↳ ${connection.username} downloading... ${transferred}/${size} bytes (${percent}%)\r`);
     });
 
     stream.on("end", () => {
-      logMessage(`✅ ${connection.username} FINISHED uploading ${path.basename(filePath)} (${transferred} bytes)`);
+      logMessage(`✅ ${connection.username} FINISHED downloading ${path.basename(filePath)} (${size} bytes)`);
     });
 
     stream.on("error", (err) => {
-      logMessage(`❌ Error during upload: ${err.message}`);
+      logMessage(`❌ Error during download: ${err.message}`);
     });
   });
 });

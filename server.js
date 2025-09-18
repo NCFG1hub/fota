@@ -49,7 +49,7 @@ server.on("client:connected", (connection) => {
     console.log(`🔑 PASS attempt for user=${username}`);
     if (username === "web" && pass === "web") {
       console.log(`✅ User ${username} authenticated`);
-      connection.username = username; // store it for logging later
+      connection.username = username; // save for later
       success(username);
     } else {
       console.log(`❌ Invalid password for user=${username}`);
@@ -57,19 +57,21 @@ server.on("client:connected", (connection) => {
     }
   });
 
-  // Log every FTP command
+  // Log all commands
   connection.on("command", (command, params) => {
-    console.log(`[CMD] ${username || "unknown"} -> ${command} ${params || ""}`);
+    console.log(`[CMD] ${connection.username || "unknown"} -> ${command} ${params || ""}`);
   });
-});
 
-// ✅ Correct way to log file transfers
-server.on("file:retr", (connection, filePath) => {
-  console.log(`📥 ${connection.username} is downloading ${filePath}`);
-});
+  // 🔥 Reliable file transfer logs
+  connection.on("command:retr", (filePath, success, failure) => {
+    console.log(`📥 ${connection.username} is downloading ${filePath}`);
+    success();
+  });
 
-server.on("file:stor", (connection, filePath) => {
-  console.log(`📤 ${connection.username} is uploading ${filePath}`);
+  connection.on("command:stor", (filePath, success, failure) => {
+    console.log(`📤 ${connection.username} is uploading ${filePath}`);
+    success();
+  });
 });
 
 // Start server

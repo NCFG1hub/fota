@@ -35,13 +35,15 @@ server.on("client:connected", (connection) => {
 
   // Handle file retrieval safely
   connection.on("file:retr", (filePath, writeStream) => {
-    const absPath = path.join(ROOT, path.basename(filePath));
+    let relPath = filePath.replace(/^\/firmware\//, ""); // strip leading /firmware/
+    const absPath = path.join(ROOT, relPath);
+
     console.log(`📥 RETR requested: ${filePath} -> ${absPath}`);
 
     fs.stat(absPath, (err, stats) => {
       if (err || !stats.isFile()) {
         console.error(`❌ File not found: ${absPath}`);
-        writeStream.end(); // gracefully end
+        writeStream.end();
         return;
       }
 
